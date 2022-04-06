@@ -1,6 +1,8 @@
 package main
 
 import (
+	"sync"
+
 	"github.com/LukeEmmet/html2gemini"
 	"github.com/laktek/Stack-on-Go/stackongo"
 	"github.com/nleeper/goment"
@@ -98,35 +100,48 @@ is:question type of post            isaccepted:yes search within status
 			}
 
 			ctx := html2gemini.NewTraverseContext(html2gemini.Options{})
-			text, err := html2gemini.FromString(html.UnescapeString(question.Body), *ctx)
+			questionBody, err := html2gemini.FromString(html.UnescapeString(question.Body), *ctx)
 			if err != nil {
 				return err
 			}
 
 			// ToDo: replace limited HTML parsing with native Markdown converted into GemText
 			content := fmt.Sprintf("# [%d] %s\nAsked %s · Modified %s · Viewed %d times\n\n\n%s\n\n## %d Answers:",
-				question.Score, html.UnescapeString(question.Title), creation_date.FromNow(), last_activity_date.FromNow(), question.View_count, text, question.Answer_count)
+				question.Score, html.UnescapeString(question.Title), creation_date.FromNow(), last_activity_date.FromNow(), question.View_count, questionBody, question.Answer_count)
 
 			sort.Slice(question.Answers, func(i, j int) bool {
 				return question.Answers[i].Score > question.Answers[j].Score
 			})
 
-			for _, answer := range question.Answers {
-				ctx := html2gemini.NewTraverseContext(html2gemini.Options{})
-				text, err := html2gemini.FromString(html.UnescapeString(answer.Body), *ctx)
-				if err != nil {
-					return err
-				}
+			var renderedAnswers = make([]string, len(question.Answers))
 
-				creation_date, err := goment.New(time.Unix(answer.Creation_date, 0))
-				if err != nil {
-					return err
-				}
+			var wg sync.WaitGroup
+			wg.Add(len(question.Answers))
 
-				content += fmt.Sprintf("\n### [%d] Answer by %s\nAnswered %s\n\n%s\n\n",
-					answer.Score, answer.Owner.Display_name, strings.ToLower(creation_date.Calendar()), text)
+			for i, answer := range question.Answers {
+				errorChannel := make(chan error)
+				answer := answer
+				i := i
+				go func() {
+					ctx := html2gemini.NewTraverseContext(html2gemini.Options{})
+					answerBody, err := html2gemini.FromString(html.UnescapeString(answer.Body), *ctx)
+					if err != nil {
+						errorChannel <- err
+					}
+
+					creation_date, err := goment.New(time.Unix(answer.Creation_date, 0))
+					if err != nil {
+						errorChannel <- err
+					}
+
+					renderedAnswers[i] = fmt.Sprintf("\n### [%d] Answer by %s\nAnswered %s\n\n%s\n\n",
+						answer.Score, answer.Owner.Display_name, strings.ToLower(creation_date.Calendar()), answerBody)
+					wg.Done()
+				}()
 			}
 
+			wg.Wait()
+			content += strings.Join(renderedAnswers, "")
 			return c.Gemini(content)
 		}
 		return c.NoContent(gig.StatusBadRequest, "Unknown error")
@@ -166,40 +181,44 @@ is:question type of post            isaccepted:yes search within status
 }
 
 func renderQuestionList(questions *stackongo.Questions, content string) (string, error) {
-	for _, question := range questions.Items {
-		creation_date, err := goment.New(time.Unix(question.Creation_date, 0))
+	var renderedQuestions = make([]string, len(questions.Items))
+
+	var wg sync.WaitGroup
+	wg.Add(len(questions.Items))
+
+	for i, question := range questions.Items {
+		errorChannel := make(chan error)
+		question := question
+		i := i
+		go func() {
+			creation_date, err := goment.New(time.Unix(question.Creation_date, 0))
+			if err != nil {
+				errorChannel <- err
+			}
+
+			last_activity_date, err := goment.New(time.Unix(question.Last_activity_date, 0))
+			if err != nil {
+				errorChannel <- err
+			}
+
+			tag_string := ""
+			for _, tag := range question.Tags {
+				tag_string += fmt.Sprintf("[%s] ", tag)
+			}
+
+			view_count := question.View_count
+
+			renderedQuestions[i] = fmt.Sprintf("\n\n=>/question?%d [%d] · %s\nAnswered %d times · Asked %s · Modified %s · Viewed %d times\n%s",
+				question.Question_id, question.Score, html.UnescapeString(question.Title), question.Answer_count, creation_date.FromNow(), last_activity_date.FromNow(), view_count, tag_string)
+			errorChannel <- nil
+			wg.Done()
+		}()
+		err := <-errorChannel
 		if err != nil {
 			return "", err
 		}
-
-		last_activity_date, err := goment.New(time.Unix(question.Last_activity_date, 0))
-		if err != nil {
-			return "", err
-		}
-
-		tag_string := ""
-		for _, tag := range question.Tags {
-			tag_string += fmt.Sprintf("[%s] ", tag)
-		}
-
-		view_count := question.View_count
-
-		content += fmt.Sprintf("\n\n=>/question?%d [%d] · %s\nAnswered %d times · Asked %s · Modified %s · Viewed %d times\n%s",
-			question.Question_id, question.Score, html.UnescapeString(question.Title), question.Answer_count, creation_date.FromNow(), last_activity_date.FromNow(), view_count, tag_string)
 	}
+	wg.Wait()
+	content += strings.Join(renderedQuestions, "")
 	return content, nil
-}
-
-func GetStringInBetween(str string, start string, end string) (result string) {
-	s := strings.Index(str, start)
-	if s == -1 {
-		return
-	}
-	s += len(start)
-	e := strings.Index(str[s:], end)
-	if e == -1 {
-		return
-	}
-	e += s + e - 1
-	return str[s:e]
 }

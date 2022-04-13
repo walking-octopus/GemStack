@@ -4,7 +4,7 @@ import (
 	"sync"
 
 	"github.com/LukeEmmet/html2gemini"
-	"github.com/laktek/Stack-on-Go/stackongo"
+	"github.com/mkhoi1998/Stack-on-Go/stackongo"
 	"github.com/nleeper/goment"
 	"github.com/patrickmn/go-cache"
 	"github.com/pitr/gig"
@@ -30,7 +30,7 @@ func main() {
 StackExchange mirrors for a smaller web.
 
 ***Search Operators Cheat Sheet
-Search Operators. Coming soon!
+Search Operators.
 
 [tag] search within a tag           user:1234 search by author
 "words here" exact phrase           collective:"Name" collective content
@@ -164,7 +164,7 @@ is:question type of post            isaccepted:yes search within status
 
 		var content = fmt.Sprintf("# Results for «%s»:\n=> /search 🔎 Search", query)
 		// Switch to advanced search
-		results, err := session.Search(query, params)
+		results, err := session.AdvancedSearch([]string{query}, params)
 
 		content, err = renderQuestionList(results, content)
 		if err != nil {

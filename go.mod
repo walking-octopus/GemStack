@@ -12,6 +12,7 @@ require (
 
 require (
 	github.com/mattn/go-runewidth v0.0.7 // indirect
+	github.com/mkhoi1998/Stack-on-Go v0.0.0-20200327103205-67f606fd2d09
 	github.com/olekukonko/tablewriter v0.0.4 // indirect
 	github.com/ssor/bom v0.0.0-20170718123548-6386211fdfcf // indirect
 	github.com/tkuchiki/go-timezone v0.2.0 // indirect
